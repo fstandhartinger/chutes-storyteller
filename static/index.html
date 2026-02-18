@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chutes Storyteller</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin="anonymous"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="hero">
+        <p class="eyebrow">chutes storyteller</p>
+        <h1>Tell me one idea. Get a story. Instantly.</h1>
+        <p class="subtitle">
+          Enter a short prompt and the app will create narration, generate
+          atmospheric illustrations, and synthesize a playable reading.
+        </p>
+      </header>
+
+      <section class="card">
+        <label for="prompt" class="label">Story idea</label>
+        <textarea
+          id="prompt"
+          rows="3"
+          placeholder="Example: a scary Halloween story about a witch using a high tech broom"
+        ></textarea>
+        <button id="generateBtn">Generate Story</button>
+        <p class="hint">This app uses Kimi K2.5 for story generation, Z-Image-Turbo for images, and Kokoro for audio.</p>
+      </section>
+
+      <section class="card progress-card" id="progressCard" hidden>
+        <h2>Progress</h2>
+        <div class="progress-track">
+          <div id="progressBar" class="progress-fill" style="width: 0%"></div>
+        </div>
+        <p id="statusText">Preparing...</p>
+        <ul id="statusList"></ul>
+      </section>
+
+      <section id="storyCard" class="card result-card" hidden>
+        <h2 id="storyTitle"></h2>
+        <p id="storyText"></p>
+
+        <div id="images" class="gallery"></div>
+
+        <button id="playBtn" type="button" class="secondary">Play Story</button>
+        <audio id="storyAudio" controls preload="none"></audio>
+      </section>
+    </main>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
