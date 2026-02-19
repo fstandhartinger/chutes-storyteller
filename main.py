@@ -26,7 +26,7 @@ app.add_middleware(
 )
 
 CHUTES_API_KEY = os.getenv("CHUTES_API_KEY", "").strip()
-LLM_ENDPOINT = os.getenv("STORY_LLM_ENDPOINT", "https://chutes.ai/api/v1/chat/completions")
+LLM_ENDPOINT = os.getenv("STORY_LLM_ENDPOINT", "https://llm.chutes.ai/v1/chat/completions")
 LLM_MODEL = os.getenv("STORY_LLM_MODEL", "moonshotai/Kimi-K2.5")
 IMAGE_ENDPOINT = os.getenv("STORY_IMAGE_ENDPOINT", "https://chutes-z-image-turbo.chutes.ai/generate")
 TTS_ENDPOINT = os.getenv("STORY_TTS_ENDPOINT", "https://chutes-kokoro.chutes.ai/speak")
