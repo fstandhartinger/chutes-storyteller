@@ -67,23 +67,30 @@ async def _set_job_state(job_id: str, **updates: Any) -> None:
         state["updatedAt"] = _now_iso()
 
 
-def _strip_json_fences(text: str) -> str:
+def _strip_json_fences(text: Any) -> str:
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
     match = re.search(r"```(?:json)?\s*(\{[\s\S]*\})\s*```", text, re.IGNORECASE)
     if match:
         return match.group(1)
     return text.strip()
 
 
-def _find_json_blob(text: str) -> str | None:
+def _find_json_blob(text: Any) -> str | None:
+    if not isinstance(text, str):
+        return None
     match = re.search(r"\{[\s\S]*\}", text)
     return match.group(0) if match else None
 
 
-def _extract_stages(text: str) -> tuple[str, str, List[ScenePlan]]:
+def _extract_stages(text: Any) -> tuple[str, str, List[ScenePlan]]:
     """Turn LLM output into (title, story, scenes).
 
     This parser intentionally handles both structured JSON and free-form output.
     """
+    normalized_text = "" if text is None else str(text)
     clean = _strip_json_fences(text)
     payload = None
 
@@ -97,11 +104,11 @@ def _extract_stages(text: str) -> tuple[str, str, List[ScenePlan]]:
             continue
 
     if not isinstance(payload, dict):
-        scene_texts = [segment.strip() for segment in text.split("\n\n") if segment.strip()]
+        scene_texts = [segment.strip() for segment in normalized_text.split("\n\n") if segment.strip()]
         parsed = [ScenePlan(text=segment, image_prompt=segment[:120]) for segment in scene_texts[:IMAGE_COUNT]]
         title = parsed[0].text[:80] if parsed else "Untitled Story"
         story = "\n\n".join(scene.text for scene in parsed)
-        return title, story.strip() or text.strip(), parsed
+        return title, story.strip() or normalized_text.strip(), parsed
 
     title = (payload.get("title") or "Untitled Story").strip()
     summary = (payload.get("summary") or "").strip()
@@ -137,7 +144,7 @@ def _extract_stages(text: str) -> tuple[str, str, List[ScenePlan]]:
     story_chunks.extend(scene.text for scene in parsed)
     combined = "\n\n".join([chunk for chunk in story_chunks if chunk]).strip()
     if not combined:
-        combined = text.strip()
+        combined = normalized_text.strip()
 
     return title, combined, parsed
 
@@ -252,11 +259,9 @@ async def _run_story_pipeline(job_id: str, prompt: str) -> None:
 
             llm_response = await _call_endpoint(client, endpoint=LLM_ENDPOINT, payload=llm_payload)
             llm_body = llm_response.json()
-            llm_text = (
-                llm_body.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
-            )
+            llm_text = llm_body.get("choices", [{}])[0].get("message", {}).get("content", "")
+            if llm_text is None:
+                raise RuntimeError("LLM response returned no story content")
             title, full_story_text, scenes = _extract_stages(llm_text)
 
             if not scenes:
