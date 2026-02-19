@@ -49,9 +49,22 @@
 
       <section id="storyCard" class="card result-card" hidden>
         <h2 id="storyTitle"></h2>
-        <p id="storyText"></p>
+        <p id="storyHint" class="hint">A cinematic story with matching scenes.</p>
 
-        <div id="images" class="gallery"></div>
+        <div class="story-layout">
+          <section id="slideshow" class="slideshow" aria-live="polite">
+            <button id="prevFrameBtn" type="button" class="slideshow-btn prev" aria-label="Previous scene">‹</button>
+            <img id="slideImage" class="slide-image" alt="Story illustration" />
+            <button id="nextFrameBtn" type="button" class="slideshow-btn next" aria-label="Next scene">›</button>
+            <p id="slideCaption" class="slide-caption">Scene 1 of 1</p>
+            <div id="slideDots" class="slide-dots" aria-label="Scene indicators"></div>
+          </section>
+
+          <section id="storyTextSection">
+            <h3 id="frameTitle"></h3>
+            <article id="storyText" class="story-markdown"></article>
+          </section>
+        </div>
 
         <button id="playBtn" type="button" class="secondary">Play Story</button>
         <audio id="storyAudio" controls preload="none"></audio>

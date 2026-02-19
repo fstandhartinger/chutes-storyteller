@@ -31,7 +31,8 @@ LLM_MODEL = os.getenv("STORY_LLM_MODEL", "moonshotai/Kimi-K2.5-TEE")
 IMAGE_ENDPOINT = os.getenv("STORY_IMAGE_ENDPOINT", "https://chutes-z-image-turbo.chutes.ai/generate")
 TTS_ENDPOINT = os.getenv("STORY_TTS_ENDPOINT", "https://chutes-kokoro.chutes.ai/speak")
 TTS_VOICE = os.getenv("STORY_TTS_VOICE", "af_heart")
-IMAGE_COUNT = int(os.getenv("STORY_IMAGE_COUNT", "3"))
+IMAGE_COUNT = int(os.getenv("STORY_IMAGE_COUNT", "10"))
+IMAGE_CONCURRENCY = int(os.getenv("STORY_IMAGE_CONCURRENCY", "3"))
 IMAGE_WIDTH = int(os.getenv("STORY_IMAGE_WIDTH", "1024"))
 IMAGE_HEIGHT = int(os.getenv("STORY_IMAGE_HEIGHT", "576"))
 IMAGE_STEPS = int(os.getenv("STORY_IMAGE_STEPS", "10"))
@@ -105,7 +106,10 @@ def _extract_stages(text: Any) -> tuple[str, str, List[ScenePlan]]:
 
     if not isinstance(payload, dict):
         scene_texts = [segment.strip() for segment in normalized_text.split("\n\n") if segment.strip()]
-        parsed = [ScenePlan(text=segment, image_prompt=segment[:120]) for segment in scene_texts[:IMAGE_COUNT]]
+        parsed = [
+            ScenePlan(text=segment, image_prompt=segment[:120])
+            for segment in scene_texts[:IMAGE_COUNT]
+        ]
         title = parsed[0].text[:80] if parsed else "Untitled Story"
         story = "\n\n".join(scene.text for scene in parsed)
         return title, story.strip() or normalized_text.strip(), parsed
@@ -137,6 +141,31 @@ def _extract_stages(text: Any) -> tuple[str, str, List[ScenePlan]]:
             title_hint = f"{title}: {summary[:120]}" if summary else f"A story called {title}"
             if not parsed:
                 parsed.append(ScenePlan(text=title_hint, image_prompt=title_hint))
+
+    target_scene_count = min(IMAGE_COUNT, 10)
+    if len(parsed) < target_scene_count:
+        fallback_source = "\n\n".join(
+            [scene.text for scene in parsed if scene.text]
+        ).strip()
+        if not fallback_source:
+            fallback_source = summary
+        fallback_text = fallback_source or normalized_text
+
+        frame_candidates = _split_story_for_frames(fallback_text, target=target_scene_count)
+        if not frame_candidates:
+            frame_candidates = ["Scene"]
+
+        used_texts = {scene.text for scene in parsed if scene.text}
+        index = 0
+        while len(parsed) < target_scene_count:
+            segment = frame_candidates[index % len(frame_candidates)]
+            candidate_prompt = segment.strip()
+            candidate_text = candidate_prompt
+            if candidate_text in used_texts:
+                candidate_text = f"{candidate_text} (Part {len(parsed) + 1})"
+            parsed.append(ScenePlan(text=candidate_text, image_prompt=candidate_prompt[:220]))
+            used_texts.add(candidate_text)
+            index += 1
 
     story_chunks: List[str] = []
     if summary:
@@ -197,6 +226,32 @@ def _decode_binary_response(response: httpx.Response, *, fallback_mime: str) -> 
     return _safe_b64(response.content, content_type or fallback_mime)
 
 
+def _split_story_for_frames(text: str, target: int) -> List[str]:
+    clean = " ".join((text or "").replace("\r", " ").split()).strip()
+    if not clean:
+        return []
+
+    paragraphs = [segment.strip() for segment in (text or "").split("\n\n") if segment.strip()]
+    if len(paragraphs) >= target:
+        return paragraphs[:target]
+
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", clean) if s.strip()]
+    if len(sentences) >= target:
+        chunk_size = max(1, len(sentences) // target)
+        chunks: List[str] = []
+        for idx in range(0, len(sentences), chunk_size):
+            chunk = " ".join(sentences[idx : idx + chunk_size]).strip()
+            if chunk:
+                chunks.append(chunk)
+        if not chunks:
+            return []
+        if len(chunks) < target:
+            chunks *= ((target // len(chunks)) + 1)
+        return chunks[:target]
+
+    return sentences[:target]
+
+
 async def _call_endpoint(
     client: httpx.AsyncClient,
     *,
@@ -248,7 +303,7 @@ async def _run_story_pipeline(job_id: str, prompt: str) -> None:
                             "Return JSON only with this exact structure:\n"
                             '{\"title\": \"string\", \"summary\": \"string\", \"scenes\": [\n'
                             '{\"text\": \"string\", \"image_prompt\": \"string\"}, ...] }. '
-                            "Use 2-5 scenes and keep every scene vivid and readable. "
+                            "Use 6-10 scenes and keep every scene vivid and readable. "
                             "Do not include markdown."
                         ),
                     },
@@ -277,29 +332,66 @@ async def _run_story_pipeline(job_id: str, prompt: str) -> None:
 
             produced_images: List[Dict[str, str]] = []
             image_limit = min(len(scenes), IMAGE_COUNT)
-            for idx, scene in enumerate(scenes[:image_limit], start=1):
+            if image_limit == 0:
+                image_jobs: List[asyncio.Task[None]] = []
+            else:
+                generated_images: List[Dict[str, str] | None] = [None] * image_limit
+                completed_images = 0
+                image_lock = asyncio.Lock()
+                image_semaphore = asyncio.Semaphore(max(1, IMAGE_CONCURRENCY))
+
+                async def _build_one_image(index: int, scene: ScenePlan) -> None:
+                    nonlocal completed_images
+                    try:
+                        async with image_semaphore:
+                            image_payload = {
+                                "prompt": scene.image_prompt,
+                                "width": IMAGE_WIDTH,
+                                "height": IMAGE_HEIGHT,
+                                "num_inference_steps": IMAGE_STEPS,
+                                "guidance_scale": 2.0,
+                            }
+                            image_response = await _call_endpoint(
+                                client,
+                                endpoint=IMAGE_ENDPOINT,
+                                payload=image_payload,
+                            )
+                            image_data = _decode_binary_response(image_response, fallback_mime="image/png")
+                            generated_images[index] = {
+                                "caption": scene.image_prompt,
+                                "b64": image_data["b64"],
+                                "mimeType": image_data["mimeType"],
+                            }
+                    except Exception as exc:
+                        generated_images[index] = {
+                            "caption": scene.image_prompt,
+                            "error": str(exc),
+                            "b64": "",
+                            "mimeType": "text/plain",
+                        }
+
+                    async with image_lock:
+                        completed_images += 1
+                        await _set_job_state(
+                            job_id,
+                            stage="Illustrations",
+                            progress=min(82, 28 + int((completed_images / image_limit) * 50)),
+                            message=f"Rendered image {completed_images} of {image_limit}.",
+                        )
+
                 await _set_job_state(
                     job_id,
                     stage="Illustrations",
-                    progress=min(75, 28 + idx * 12),
-                    message=f"Rendering image {idx} of {image_limit}.",
+                    progress=28,
+                    message="Rendering illustrations in parallel.",
                 )
-                image_payload = {
-                    "prompt": scene.image_prompt,
-                    "width": IMAGE_WIDTH,
-                    "height": IMAGE_HEIGHT,
-                    "num_inference_steps": IMAGE_STEPS,
-                    "guidance_scale": 2.0,
-                }
-                image_response = await _call_endpoint(client, endpoint=IMAGE_ENDPOINT, payload=image_payload)
-                image_data = _decode_binary_response(image_response, fallback_mime="image/png")
-                produced_images.append(
-                    {
-                        "caption": scene.image_prompt,
-                        "b64": image_data["b64"],
-                        "mimeType": image_data["mimeType"],
-                    }
-                )
+
+                image_jobs = [
+                    asyncio.create_task(_build_one_image(idx, scene))
+                    for idx, scene in enumerate(scenes[:image_limit])
+                ]
+                await asyncio.gather(*image_jobs)
+                produced_images = [image for image in generated_images if image is not None]
 
             await _set_job_state(
                 job_id,

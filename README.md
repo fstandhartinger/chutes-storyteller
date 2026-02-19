@@ -3,7 +3,7 @@
 A collaborative storytelling web app built around Chutes models. Users provide a single prompt and the app generates:
 
 - A short atmospheric story text.
-- Multiple scene illustrations.
+- Multiple scene illustrations, rendered as a slideshow.
 - A complete narration audio track.
 
 Music generation is intentionally omitted for now.
@@ -12,7 +12,7 @@ Music generation is intentionally omitted for now.
 
 - One input prompt to start.
 - Visual + progress updates while generation runs.
-- Gallery of generated illustrations.
+- Slideshow-style presentation with scene-by-scene imagery.
 - Playable audio narration once generation completes.
 
 ## Tech Stack
@@ -20,7 +20,7 @@ Music generation is intentionally omitted for now.
 - FastAPI backend.
 - Vanilla JS frontend.
 - Chutes endpoints:
-  - `moonshotai/Kimi-K2.5` for story writing.
+- `moonshotai/Kimi-K2.5` for story writing.
   - `chutes-z-image-turbo.chutes.ai` for text-to-image.
   - `chutes-kokoro.chutes.ai` for text-to-speech.
 
